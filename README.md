@@ -5,7 +5,7 @@ A small script that shows at a glance whether a season is complete in your Jelly
 - **✓ 13** (green): all aired episodes of the season are present
 - **11/13** (red): episodes are missing — hover for the exact count
 
-Unaired episodes are ignored, so an ongoing season isn't flagged as incomplete.
+Badges appear on season posters and on series posters in the library (series count all seasons except Specials). Unaired episodes are ignored, so an ongoing season isn't flagged as incomplete.
 
 <!-- ![Season badges](screenshot.png) -->
 

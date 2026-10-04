@@ -1,11 +1,13 @@
 // Season completeness badge for Jellyfin
-// Shows "✓ 13" (complete) or "11/13" (episodes missing) on season posters.
-// Unaired episodes are ignored. Requires missing episodes to be enabled
+// Shows "✓ 13" (complete) or "11/13" (episodes missing) on season and series posters.
+// Series badges count all seasons except Specials. Unaired episodes are ignored.
+// Requires missing episodes to be enabled
 // (metadata provider + "Display missing episodes within seasons").
 (function () {
   'use strict';
 
   const FLAG = 'data-cbadge';
+  const SERIES_KEY = '__series';
   const seriesCache = new Map();
 
   function seriesStats(c, seriesId) {
@@ -19,6 +21,7 @@
       const p = c.getJSON(url).then(function (res) {
         const now = Date.now();
         const stats = new Map();
+        const all = { have: 0, total: 0 };
         (res.Items || []).forEach(function (ep) {
           const virtual = ep.LocationType === 'Virtual';
           const aired = ep.PremiereDate && Date.parse(ep.PremiereDate) <= now;
@@ -27,7 +30,12 @@
           s.total++;
           if (!virtual) s.have++;
           stats.set(ep.SeasonId, s);
+          if (ep.ParentIndexNumber !== 0) {
+            all.total++;
+            if (!virtual) all.have++;
+          }
         });
+        stats.set(SERIES_KEY, all);
         return stats;
       });
       seriesCache.set(seriesId, p);
@@ -44,7 +52,7 @@
     const b = document.createElement('div');
     b.className = 'season-complete-badge';
     b.textContent = done ? '✓ ' + s.total : s.have + '/' + s.total;
-    b.title = done ? 'Season complete' : (s.total - s.have) + ' episode(s) missing';
+    b.title = done ? 'Complete' : (s.total - s.have) + ' episode(s) missing';
     b.style.cssText = [
       'position:absolute', 'top:.4em', 'left:.4em', 'z-index:5',
       'padding:.15em .5em', 'border-radius:.4em',
@@ -59,15 +67,21 @@
     const c = window.ApiClient;
     if (!c || !c.getCurrentUserId || !c.getCurrentUserId()) return;
     const cards = document.querySelectorAll(
-      '.card[data-type="Season"][data-id]:not([' + FLAG + '])');
+      '.card[data-type="Season"][data-id]:not([' + FLAG + ']),' +
+      '.card[data-type="Series"][data-id]:not([' + FLAG + '])');
     for (const card of cards) {
       card.setAttribute(FLAG, '1');
-      const seasonId = card.getAttribute('data-id');
+      const id = card.getAttribute('data-id');
       try {
-        const season = await c.getItem(c.getCurrentUserId(), seasonId);
-        if (!season.SeriesId) continue;
-        const stats = await seriesStats(c, season.SeriesId);
-        addBadge(card, stats.get(seasonId));
+        if (card.getAttribute('data-type') === 'Series') {
+          const stats = await seriesStats(c, id);
+          addBadge(card, stats.get(SERIES_KEY));
+        } else {
+          const season = await c.getItem(c.getCurrentUserId(), id);
+          if (!season.SeriesId) continue;
+          const stats = await seriesStats(c, season.SeriesId);
+          addBadge(card, stats.get(id));
+        }
       } catch (e) {
         console.warn('[season-badge]', e);
       }
