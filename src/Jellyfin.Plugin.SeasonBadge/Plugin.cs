@@ -32,5 +32,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             Name = Name,
             EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
         };
+
+        yield return new PluginPageInfo
+        {
+            Name = "SeasonBadgeIncomplete",
+            DisplayName = "Incomplete Series",
+            EmbeddedResourcePath = GetType().Namespace + ".Configuration.incompletePage.html",
+            EnableInMainMenu = true,
+            MenuIcon = "checklist"
+        };
     }
 }

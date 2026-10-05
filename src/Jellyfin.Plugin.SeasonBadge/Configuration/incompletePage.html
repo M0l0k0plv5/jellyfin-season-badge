@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Incomplete Series</title>
+</head>
+<body>
+<div id="seasonBadgeIncompletePage" data-role="page" class="page type-interior pluginConfigurationPage">
+    <div data-role="content">
+        <div class="content-primary">
+            <div class="verticalSection">
+                <h2 class="sectionTitle">Incomplete Series</h2>
+                <p id="sbSummary" class="fieldDescription"></p>
+            </div>
+
+            <div style="display:flex;gap:1em;flex-wrap:wrap;align-items:flex-end;">
+                <div class="inputContainer" style="flex:1;min-width:200px;">
+                    <label class="inputLabel" for="sbFilter">Filter</label>
+                    <input id="sbFilter" type="text" is="emby-input" autocomplete="off" />
+                </div>
+                <div class="selectContainer" style="min-width:200px;">
+                    <label class="selectLabel" for="sbSort">Sort by</label>
+                    <select id="sbSort" is="emby-select" class="emby-select-withcolor emby-select">
+                        <option value="missing">Most missing</option>
+                        <option value="percent">Least complete</option>
+                        <option value="name">Name</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="sbList"></div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            const pluginId = '4298b1d5-858b-4417-98aa-bb6c6895b61c';
+            const page = document.querySelector('#seasonBadgeIncompletePage');
+            const $ = function (sel) { return page.querySelector(sel); };
+            let series = [];
+            let color = '#c62828';
+
+            function el(tag, css, text) {
+                const e = document.createElement(tag);
+                if (css) e.style.cssText = css;
+                if (text !== undefined) e.textContent = text;
+                return e;
+            }
+
+            function sorted(list) {
+                const mode = $('#sbSort').value;
+                const missing = function (s) { return s.total - s.have; };
+                return list.slice().sort(function (a, b) {
+                    if (mode === 'name') return a.name.localeCompare(b.name);
+                    if (mode === 'percent') return (a.have / a.total) - (b.have / b.total) || a.name.localeCompare(b.name);
+                    return missing(b) - missing(a) || a.name.localeCompare(b.name);
+                });
+            }
+
+            function ignoreSeries(item, row) {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    const ids = config.ExcludedSeriesIds || [];
+                    if (ids.indexOf(item.id) === -1) ids.push(item.id);
+                    config.ExcludedSeriesIds = ids;
+                    return ApiClient.updatePluginConfiguration(pluginId, config);
+                }).then(function () {
+                    series = series.filter(function (s) { return s.id !== item.id; });
+                    row.remove();
+                    renderSummary();
+                }).finally(function () {
+                    Dashboard.hideLoadingMsg();
+                });
+            }
+
+            function renderRow(item) {
+                const row = el('div', 'display:flex;gap:1em;align-items:center;padding:.8em 0;border-bottom:1px solid rgba(128,128,128,.25);');
+                const main = el('div', 'flex:1;min-width:0;');
+
+                const title = el('a', 'font-weight:600;color:inherit;text-decoration:none;', item.name + (item.year ? ' (' + item.year + ')' : ''));
+                title.href = '#/details?id=' + item.id;
+                main.appendChild(title);
+
+                const bar = el('div', 'height:.4em;border-radius:.2em;background:rgba(128,128,128,.25);margin:.4em 0;max-width:24em;');
+                bar.appendChild(el('div', 'height:100%;border-radius:.2em;background:' + color + ';width:' + Math.round(100 * item.have / item.total) + '%;'));
+                main.appendChild(bar);
+
+                const chips = el('div', 'display:flex;flex-wrap:wrap;gap:.4em;');
+                item.seasons.forEach(function (s) {
+                    const chip = el('a', 'font-size:.85em;padding:.1em .6em;border-radius:1em;background:rgba(128,128,128,.2);color:inherit;text-decoration:none;',
+                        s.name + ': ' + s.have + '/' + s.total);
+                    chip.href = '#/details?id=' + s.id;
+                    chips.appendChild(chip);
+                });
+                main.appendChild(chips);
+
+                const counts = el('div', 'text-align:right;white-space:nowrap;');
+                counts.appendChild(el('div', 'font-weight:600;', item.have + '/' + item.total));
+                counts.appendChild(el('div', 'font-size:.85em;opacity:.7;', (item.total - item.have) + ' missing'));
+
+                const btn = el('button', '', 'Ignore');
+                btn.type = 'button';
+                btn.title = 'Exclude this series from badges and this list';
+                btn.setAttribute('is', 'emby-button');
+                btn.className = 'raised button-alt emby-button';
+                btn.addEventListener('click', function () { ignoreSeries(item, row); });
+
+                row.appendChild(main);
+                row.appendChild(counts);
+                row.appendChild(btn);
+                return row;
+            }
+
+            function renderSummary() {
+                const missing = series.reduce(function (sum, s) { return sum + s.total - s.have; }, 0);
+                $('#sbSummary').textContent = series.length
+                    ? series.length + ' series with missing episodes, ' + missing + ' episodes missing in total. Unaired episodes and excluded series are not counted.'
+                    : 'All series are complete.';
+            }
+
+            function renderList() {
+                const term = $('#sbFilter').value.trim().toLowerCase();
+                const box = $('#sbList');
+                box.innerHTML = '';
+                sorted(series)
+                    .filter(function (s) { return !term || s.name.toLowerCase().indexOf(term) !== -1; })
+                    .forEach(function (s) { box.appendChild(renderRow(s)); });
+            }
+
+            function load() {
+                Dashboard.showLoadingMsg();
+                $('#sbSummary').textContent = 'Counting episodes… this can take a moment the first time.';
+                Promise.all([
+                    ApiClient.getJSON(ApiClient.getUrl('SeasonBadge/Incomplete')),
+                    ApiClient.getPluginConfiguration(pluginId).catch(function () { return {}; }),
+                    ApiClient.getJSON(ApiClient.getUrl('SeasonBadge/Health')).catch(function () { return null; })
+                ]).then(function (results) {
+                    series = results[0] || [];
+                    color = results[1].IncompleteColor || color;
+                    renderSummary();
+                    if (!series.length && results[2] && results[2].missingEpisodes === 0) {
+                        $('#sbSummary').textContent = 'No missing-episode placeholders found, so nothing can be counted yet. Enable a metadata provider that creates them (e.g. TheTVDB plugin: Missing Episode Fetcher) and refresh your TV library metadata.';
+                    }
+                    renderList();
+                }).catch(function (e) {
+                    console.error('[season-badge]', e);
+                    $('#sbSummary').textContent = 'Could not load the list. Check the server log for errors.';
+                }).finally(function () {
+                    Dashboard.hideLoadingMsg();
+                });
+            }
+
+            $('#sbFilter').addEventListener('input', renderList);
+            $('#sbSort').addEventListener('change', renderList);
+            page.addEventListener('pageshow', load);
+        })();
+    </script>
+</div>
+</body>
+</html>

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.SeasonBadge.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -15,6 +16,21 @@ public record BadgeResult(
 
 public record HealthResult(
     [property: JsonPropertyName("missingEpisodes")] int MissingEpisodes);
+
+public record IncompleteSeason(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("index")] int? Index,
+    [property: JsonPropertyName("have")] int Have,
+    [property: JsonPropertyName("total")] int Total);
+
+public record IncompleteSeries(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("year")] int? Year,
+    [property: JsonPropertyName("have")] int Have,
+    [property: JsonPropertyName("total")] int Total,
+    [property: JsonPropertyName("seasons")] IReadOnlyList<IncompleteSeason> Seasons);
 
 /// <summary>
 /// Returns badge counts for many seasons and series in one request.
@@ -91,6 +107,80 @@ public class SeasonBadgeController : ControllerBase
                 result[raw] = new BadgeResult(counts.Have, counts.Total);
             }
         }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Lists every series with missing aired episodes, most missing first.
+    /// </summary>
+    [HttpGet("Incomplete")]
+    public ActionResult<List<IncompleteSeries>> GetIncomplete()
+    {
+        User? user = GetUser();
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        PluginConfiguration cfg = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        HashSet<Guid> excludedLibraries = ToGuids(cfg.ExcludedLibraryIds);
+        HashSet<Guid> excludedSeries = ToGuids(cfg.ExcludedSeriesIds);
+        List<IncompleteSeries> result = new();
+
+        IReadOnlyList<BaseItem> allSeries = _libraryManager.GetItemList(new InternalItemsQuery(user)
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Series },
+            Recursive = true
+        });
+
+        foreach (BaseItem item in allSeries)
+        {
+            if (item is not Series series || excludedSeries.Contains(series.Id))
+            {
+                continue;
+            }
+
+            if (excludedLibraries.Count > 0
+                && _libraryManager.GetCollectionFolders(series).Any(f => excludedLibraries.Contains(f.Id)))
+            {
+                continue;
+            }
+
+            SeriesStats stats = _stats.GetSeriesStats(series, user);
+            Counts counts = stats.ForSeries(cfg.IncludeSpecials);
+            if (counts.Total == 0 || counts.Have >= counts.Total)
+            {
+                continue;
+            }
+
+            List<IncompleteSeason> seasons = new();
+            foreach (KeyValuePair<Guid, Counts> entry in stats.Seasons)
+            {
+                if (entry.Value.Have >= entry.Value.Total)
+                {
+                    continue;
+                }
+
+                BaseItem? season = _libraryManager.GetItemById(entry.Key);
+                int? index = season?.IndexNumber;
+                if (index == 0 && !cfg.IncludeSpecials)
+                {
+                    continue;
+                }
+
+                seasons.Add(new IncompleteSeason(entry.Key.ToString("N"), season?.Name ?? "Unknown season", index, entry.Value.Have, entry.Value.Total));
+            }
+
+            seasons.Sort((a, b) => (a.Index ?? int.MaxValue).CompareTo(b.Index ?? int.MaxValue));
+            result.Add(new IncompleteSeries(series.Id.ToString("N"), series.Name, series.ProductionYear, counts.Have, counts.Total, seasons));
+        }
+
+        result.Sort((a, b) =>
+        {
+            int byMissing = (b.Total - b.Have).CompareTo(a.Total - a.Have);
+            return byMissing != 0 ? byMissing : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+        });
 
         return result;
     }

@@ -43,6 +43,10 @@ Dashboard → Plugins → Season Badge:
 
 Reload the web client after saving.
 
+### Incomplete series overview
+
+Dashboard → **Incomplete Series** (sidebar, under Plugins) lists every series with missing aired episodes and the affected seasons. Sort by most missing, least complete or name, filter by title, and click **Ignore** to exclude a series.
+
 ## Installation (script only)
 
 No plugin, no settings: paste [`season-badge.js`](season-badge.js) into the [JavaScript Injector](https://github.com/n00bcodr/Jellyfin-JavaScript-Injector) plugin and hard-refresh your browser. Don't use both methods at the same time.

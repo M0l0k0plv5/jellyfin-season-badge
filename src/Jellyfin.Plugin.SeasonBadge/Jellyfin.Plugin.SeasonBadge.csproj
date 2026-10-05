@@ -24,6 +24,7 @@
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
+    <EmbeddedResource Include="Configuration\incompletePage.html" />
     <EmbeddedResource Include="..\..\season-badge.js" LogicalName="SeasonBadge.js" />
   </ItemGroup>
 
