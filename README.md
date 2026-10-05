@@ -1,6 +1,6 @@
 # Jellyfin Season Badge
 
-![Season Badge](logo.png)
+![Season Badge](icon.png)
 
 Shows at a glance whether a season or series is complete in your Jellyfin library.
 

@@ -20,7 +20,7 @@ json.dump([{
     "description": "Shows on season and series posters whether all aired episodes are in your library, and highlights missing episodes. Requires the File Transformation plugin.",
     "owner": repo.split("/")[0],
     "category": "General",
-    "imageUrl": f"https://raw.githubusercontent.com/{repo}/main/logo.png",
+    "imageUrl": f"https://raw.githubusercontent.com/{repo}/main/icon.png",
     "versions": [{
         "version": version,
         "changelog": f"https://github.com/{repo}/releases/tag/{tag}",
