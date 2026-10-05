@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Season Badge</title>
+</head>
+<body>
+<div id="seasonBadgeConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="seasonBadgeConfigForm">
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Season Badge</h2>
+                    <p>Requires the <b>File Transformation</b> plugin. After saving, reload the web client (Ctrl+Shift+R).</p>
+                </div>
+
+                <div class="checkboxContainer">
+                    <label class="emby-checkbox-label">
+                        <input id="sbShowOnSeasons" type="checkbox" is="emby-checkbox" />
+                        <span>Show badges on season posters</span>
+                    </label>
+                </div>
+                <div class="checkboxContainer">
+                    <label class="emby-checkbox-label">
+                        <input id="sbShowOnSeries" type="checkbox" is="emby-checkbox" />
+                        <span>Show badges on series posters</span>
+                    </label>
+                </div>
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="sbIncludeSpecials" type="checkbox" is="emby-checkbox" />
+                        <span>Count specials in series badges</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">Off by default, since most libraries don't collect every special.</div>
+                </div>
+                <div class="checkboxContainer">
+                    <label class="emby-checkbox-label">
+                        <input id="sbHideComplete" type="checkbox" is="emby-checkbox" />
+                        <span>Only show badges when episodes are missing</span>
+                    </label>
+                </div>
+
+                <div class="selectContainer">
+                    <label class="selectLabel" for="sbPosition">Badge position</label>
+                    <select is="emby-select" id="sbPosition" class="emby-select-withcolor emby-select">
+                        <option value="top-left">Top left</option>
+                        <option value="top-right">Top right (overlaps the unwatched count)</option>
+                        <option value="bottom-left">Bottom left</option>
+                        <option value="bottom-right">Bottom right</option>
+                    </select>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="sbCompleteColor">Complete color</label>
+                    <input id="sbCompleteColor" type="color" />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel" for="sbIncompleteColor">Incomplete color</label>
+                    <input id="sbIncompleteColor" type="color" />
+                </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Libraries</h3>
+                    <div class="fieldDescription">Badges are shown for checked libraries only.</div>
+                    <div id="sbLibraries"></div>
+                </div>
+
+                <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                    <span>Save</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            const pluginId = '4298b1d5-858b-4417-98aa-bb6c6895b61c';
+            const page = document.querySelector('#seasonBadgeConfigPage');
+            const $ = function (sel) { return page.querySelector(sel); };
+
+            function renderLibraries(folders, excluded) {
+                const box = $('#sbLibraries');
+                box.innerHTML = '';
+                folders
+                    .filter(function (f) { return f.CollectionType === 'tvshows' || !f.CollectionType; })
+                    .forEach(function (f) {
+                        const wrap = document.createElement('div');
+                        wrap.className = 'checkboxContainer';
+                        const label = document.createElement('label');
+                        label.className = 'emby-checkbox-label';
+                        const input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.setAttribute('is', 'emby-checkbox');
+                        input.className = 'sbLibrary';
+                        input.dataset.id = f.ItemId;
+                        input.checked = excluded.indexOf(f.ItemId) === -1;
+                        const span = document.createElement('span');
+                        span.textContent = f.Name;
+                        label.appendChild(input);
+                        label.appendChild(span);
+                        wrap.appendChild(label);
+                        box.appendChild(wrap);
+                    });
+            }
+
+            page.addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                Promise.all([
+                    ApiClient.getPluginConfiguration(pluginId),
+                    ApiClient.getVirtualFolders()
+                ]).then(function (results) {
+                    const config = results[0];
+                    $('#sbShowOnSeasons').checked = config.ShowOnSeasons;
+                    $('#sbShowOnSeries').checked = config.ShowOnSeries;
+                    $('#sbIncludeSpecials').checked = config.IncludeSpecials;
+                    $('#sbHideComplete').checked = config.HideComplete;
+                    $('#sbPosition').value = config.Position || 'top-left';
+                    $('#sbCompleteColor').value = config.CompleteColor || '#2e7d32';
+                    $('#sbIncompleteColor').value = config.IncompleteColor || '#c62828';
+                    renderLibraries(results[1] || [], config.ExcludedLibraryIds || []);
+                }).finally(function () {
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            $('#seasonBadgeConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    config.ShowOnSeasons = $('#sbShowOnSeasons').checked;
+                    config.ShowOnSeries = $('#sbShowOnSeries').checked;
+                    config.IncludeSpecials = $('#sbIncludeSpecials').checked;
+                    config.HideComplete = $('#sbHideComplete').checked;
+                    config.Position = $('#sbPosition').value;
+                    config.CompleteColor = $('#sbCompleteColor').value;
+                    config.IncompleteColor = $('#sbIncompleteColor').value;
+                    config.ExcludedLibraryIds = Array.prototype.slice.call(page.querySelectorAll('.sbLibrary'))
+                        .filter(function (i) { return !i.checked; })
+                        .map(function (i) { return i.dataset.id; });
+                    return ApiClient.updatePluginConfiguration(pluginId, config);
+                }).then(function (result) {
+                    Dashboard.processPluginConfigurationUpdateResult(result);
+                }).finally(function () {
+                    Dashboard.hideLoadingMsg();
+                });
+                return false;
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>
