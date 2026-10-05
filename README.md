@@ -69,7 +69,7 @@ Results are cached for 60 seconds per series. Nothing is changed on the server; 
 dotnet publish src/Jellyfin.Plugin.SeasonBadge -c Release -o out
 ```
 
-Pushing a `v*` tag builds the plugin and publishes a release with the zip and `manifest.json`.
+`./release.sh 1.2.3` builds the plugin and publishes a GitHub release with the zip and `manifest.json` (requires the .NET 10 SDK and `gh`).
 
 ## License
 
