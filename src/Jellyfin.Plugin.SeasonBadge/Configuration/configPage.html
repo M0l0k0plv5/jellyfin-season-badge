@@ -13,6 +13,11 @@
                     <p>Requires the <b>File Transformation</b> plugin. After saving, reload the web client (Ctrl+Shift+R).</p>
                 </div>
 
+                <div id="sbHealthWarning" class="verticalSection" style="display:none;padding:1em;border-radius:.5em;background:rgba(198,40,40,.15);border-left:4px solid #c62828;">
+                    <b>No missing-episode placeholders found.</b>
+                    <div class="fieldDescription">Every badge will show as complete until a metadata provider creates them (e.g. TheTVDB plugin: <i>Missing Episode Fetcher</i> in your TV library settings, then <i>Refresh metadata</i>). Users also need <i>Display missing episodes within seasons</i> enabled under Profile &rarr; Display.</div>
+                </div>
+
                 <div class="checkboxContainer">
                     <label class="emby-checkbox-label">
                         <input id="sbShowOnSeasons" type="checkbox" is="emby-checkbox" />
@@ -37,6 +42,13 @@
                         <input id="sbHideComplete" type="checkbox" is="emby-checkbox" />
                         <span>Only show badges when episodes are missing</span>
                     </label>
+                </div>
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="sbHighlightMissing" type="checkbox" is="emby-checkbox" />
+                        <span>Highlight missing episodes in episode lists</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">Marks missing episodes with the incomplete color. Unaired episodes turn grey.</div>
                 </div>
 
                 <div class="selectContainer">
@@ -64,6 +76,17 @@
                     <div id="sbLibraries"></div>
                 </div>
 
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Excluded series</h3>
+                    <div class="fieldDescription">Series listed here never get a badge, e.g. shows you only want one season of.</div>
+                    <div id="sbExcludedSeries" style="margin:.5em 0;"></div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="sbSeriesSearch">Add series</label>
+                        <input id="sbSeriesSearch" type="text" is="emby-input" placeholder="Search by name" autocomplete="off" />
+                    </div>
+                    <div id="sbSeriesResults"></div>
+                </div>
+
                 <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                     <span>Save</span>
                 </button>
@@ -76,6 +99,71 @@
             const pluginId = '4298b1d5-858b-4417-98aa-bb6c6895b61c';
             const page = document.querySelector('#seasonBadgeConfigPage');
             const $ = function (sel) { return page.querySelector(sel); };
+            let excludedSeries = []; // [{ Id, Name }]
+            let searchTimer;
+
+            function seriesRow(item, buttonText, onClick) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:1em;padding:.3em 0;';
+                const name = document.createElement('span');
+                name.textContent = item.Name + (item.ProductionYear ? ' (' + item.ProductionYear + ')' : '');
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.setAttribute('is', 'emby-button');
+                btn.className = 'raised button-alt emby-button';
+                btn.textContent = buttonText;
+                btn.addEventListener('click', onClick);
+                row.appendChild(name);
+                row.appendChild(btn);
+                return row;
+            }
+
+            function renderExcludedSeries() {
+                const box = $('#sbExcludedSeries');
+                box.innerHTML = '';
+                if (!excludedSeries.length) {
+                    box.innerHTML = '<div class="fieldDescription">None</div>';
+                    return;
+                }
+                excludedSeries.forEach(function (item) {
+                    box.appendChild(seriesRow(item, 'Remove', function () {
+                        excludedSeries = excludedSeries.filter(function (s) { return s.Id !== item.Id; });
+                        renderExcludedSeries();
+                    }));
+                });
+            }
+
+            function searchSeries() {
+                const term = $('#sbSeriesSearch').value.trim();
+                const box = $('#sbSeriesResults');
+                if (term.length < 2) {
+                    box.innerHTML = '';
+                    return;
+                }
+                ApiClient.getItems(ApiClient.getCurrentUserId(), {
+                    IncludeItemTypes: 'Series',
+                    Recursive: true,
+                    SearchTerm: term,
+                    Limit: 10,
+                    Fields: 'ProductionYear'
+                }).then(function (res) {
+                    box.innerHTML = '';
+                    (res.Items || []).forEach(function (item) {
+                        if (excludedSeries.some(function (s) { return s.Id === item.Id; })) return;
+                        box.appendChild(seriesRow(item, 'Exclude', function () {
+                            excludedSeries.push({ Id: item.Id, Name: item.Name, ProductionYear: item.ProductionYear });
+                            renderExcludedSeries();
+                            $('#sbSeriesSearch').value = '';
+                            box.innerHTML = '';
+                        }));
+                    });
+                });
+            }
+
+            $('#sbSeriesSearch').addEventListener('input', function () {
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(searchSeries, 250);
+            });
 
             function renderLibraries(folders, excluded) {
                 const box = $('#sbLibraries');
@@ -113,10 +201,27 @@
                     $('#sbShowOnSeries').checked = config.ShowOnSeries;
                     $('#sbIncludeSpecials').checked = config.IncludeSpecials;
                     $('#sbHideComplete').checked = config.HideComplete;
+                    $('#sbHighlightMissing').checked = config.HighlightMissingEpisodes;
                     $('#sbPosition').value = config.Position || 'top-left';
                     $('#sbCompleteColor').value = config.CompleteColor || '#2e7d32';
                     $('#sbIncompleteColor').value = config.IncompleteColor || '#c62828';
                     renderLibraries(results[1] || [], config.ExcludedLibraryIds || []);
+                    const ids = config.ExcludedSeriesIds || [];
+                    excludedSeries = [];
+                    renderExcludedSeries();
+                    if (ids.length) {
+                        ApiClient.getItems(ApiClient.getCurrentUserId(), { Ids: ids.join(','), Fields: 'ProductionYear' }).then(function (res) {
+                            const found = res.Items || [];
+                            excludedSeries = ids.map(function (id) {
+                                const item = found.find(function (i) { return i.Id === id; });
+                                return item ? { Id: id, Name: item.Name, ProductionYear: item.ProductionYear } : { Id: id, Name: 'Unknown series (' + id + ')' };
+                            });
+                            renderExcludedSeries();
+                        });
+                    }
+                    ApiClient.getJSON(ApiClient.getUrl('SeasonBadge/Health')).then(function (health) {
+                        $('#sbHealthWarning').style.display = health && health.missingEpisodes === 0 ? '' : 'none';
+                    }).catch(function () {});
                 }).finally(function () {
                     Dashboard.hideLoadingMsg();
                 });
@@ -130,6 +235,8 @@
                     config.ShowOnSeries = $('#sbShowOnSeries').checked;
                     config.IncludeSpecials = $('#sbIncludeSpecials').checked;
                     config.HideComplete = $('#sbHideComplete').checked;
+                    config.HighlightMissingEpisodes = $('#sbHighlightMissing').checked;
+                    config.ExcludedSeriesIds = excludedSeries.map(function (s) { return s.Id; });
                     config.Position = $('#sbPosition').value;
                     config.CompleteColor = $('#sbCompleteColor').value;
                     config.IncompleteColor = $('#sbIncompleteColor').value;

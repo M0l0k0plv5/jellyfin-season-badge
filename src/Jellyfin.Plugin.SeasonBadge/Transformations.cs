@@ -50,10 +50,13 @@ public static class Transformations
                 cfg.ShowOnSeries,
                 cfg.IncludeSpecials,
                 cfg.HideComplete,
+                HighlightMissing = cfg.HighlightMissingEpisodes,
                 cfg.Position,
                 cfg.CompleteColor,
                 cfg.IncompleteColor,
-                cfg.ExcludedLibraryIds
+                cfg.ExcludedLibraryIds,
+                cfg.ExcludedSeriesIds,
+                ServerStats = true
             },
             JsonOptions);
 

@@ -1,8 +1,10 @@
 // Season Badge for Jellyfin
-// Shows "✓ 13" (complete) or "11/13" (episodes missing) on season and series posters.
+// Shows "✓ 13" (complete) or "11/13" (episodes missing) on season and series posters
+// and highlights missing episodes in episode lists.
 // Unaired episodes are ignored. Requires missing episodes to be enabled
 // (metadata provider + "Display missing episodes within seasons").
-// Used by the Season Badge plugin; can also be pasted into JavaScript Injector as is.
+// Injected by the Season Badge plugin (counts come from the server in batches).
+// Can also be pasted into JavaScript Injector as is (counts are then fetched per series).
 (function () {
   'use strict';
 
@@ -14,63 +16,37 @@
     showOnSeries: true,
     includeSpecials: false,
     hideComplete: false,
+    highlightMissing: true,
     position: 'top-left',
     completeColor: '#2e7d32',
     incompleteColor: '#c62828',
-    excludedLibraryIds: []
+    excludedLibraryIds: [],
+    excludedSeriesIds: [],
+    serverStats: false
   }, window.SeasonBadgeConfig || {});
 
   const norm = function (id) { return String(id || '').replace(/-/g, '').toLowerCase(); };
-  const excluded = new Set((cfg.excludedLibraryIds || []).map(norm));
+  const excludedLibraries = new Set((cfg.excludedLibraryIds || []).map(norm));
+  const excludedSeries = new Set((cfg.excludedSeriesIds || []).map(norm));
 
   const FLAG = 'data-cbadge';
-  const SERIES_KEY = '__series';
-  const seriesCache = new Map();
+  const TTL = 60000;
+  const BATCH = 40;
 
-  async function isExcluded(c, seriesId) {
-    if (!excluded.size) return false;
-    const url = c.getUrl('Items/' + seriesId + '/Ancestors', { UserId: c.getCurrentUserId() });
-    const ancestors = await c.getJSON(url);
-    return (ancestors || []).some(function (a) { return excluded.has(norm(a.Id)); });
+  // ---- Missing episode highlight (pure CSS) ----
+  if (cfg.highlightMissing) {
+    const style = document.createElement('style');
+    style.textContent =
+      ':root{--sb-missing:' + cfg.incompleteColor + '}' +
+      '.listItem:has(.missingIndicator){box-shadow:inset 4px 0 0 var(--sb-missing);' +
+      'background:color-mix(in srgb,var(--sb-missing) 12%,transparent)}' +
+      '.card:has(.missingIndicator) .cardImageContainer{outline:3px solid var(--sb-missing);outline-offset:-3px}' +
+      '.missingIndicator{background:var(--sb-missing)!important}' +
+      '.unairedIndicator{background:#616161!important}';
+    document.head.appendChild(style);
   }
 
-  async function loadStats(c, seriesId) {
-    if (await isExcluded(c, seriesId)) return null;
-    const url = c.getUrl('Shows/' + seriesId + '/Episodes', {
-      UserId: c.getCurrentUserId(),
-      Fields: 'PremiereDate',
-      EnableImages: false,
-      EnableUserData: false
-    });
-    const res = await c.getJSON(url);
-    const now = Date.now();
-    const stats = new Map();
-    const all = { have: 0, total: 0 };
-    (res.Items || []).forEach(function (ep) {
-      const virtual = ep.LocationType === 'Virtual';
-      const aired = ep.PremiereDate && Date.parse(ep.PremiereDate) <= now;
-      if (virtual && !aired) return; // skip unaired / undated placeholders
-      const s = stats.get(ep.SeasonId) || { have: 0, total: 0 };
-      s.total++;
-      if (!virtual) s.have++;
-      stats.set(ep.SeasonId, s);
-      if (cfg.includeSpecials || ep.ParentIndexNumber !== 0) {
-        all.total++;
-        if (!virtual) all.have++;
-      }
-    });
-    stats.set(SERIES_KEY, all);
-    return stats;
-  }
-
-  function seriesStats(c, seriesId) {
-    if (!seriesCache.has(seriesId)) {
-      seriesCache.set(seriesId, loadStats(c, seriesId));
-      setTimeout(function () { seriesCache.delete(seriesId); }, 60000);
-    }
-    return seriesCache.get(seriesId);
-  }
-
+  // ---- Badge rendering ----
   const POSITIONS = {
     'top-left': ['top', 'left'],
     'top-right': ['top', 'right'],
@@ -84,6 +60,7 @@
     if (done && cfg.hideComplete) return;
     const host = card.querySelector('.cardImageContainer') ||
                  card.querySelector('.cardScalable') || card;
+    if (host.querySelector('.season-complete-badge')) return;
     const pos = POSITIONS[cfg.position] || POSITIONS['top-left'];
     const b = document.createElement('div');
     b.className = 'season-complete-badge';
@@ -99,6 +76,85 @@
     host.appendChild(b);
   }
 
+  // ---- Server mode: one request per batch of cards ----
+  const statsCache = new Map(); // id -> { at, value }
+
+  function cached(id) {
+    const e = statsCache.get(id);
+    return e && Date.now() - e.at < TTL ? e : null;
+  }
+
+  async function fetchServer(c, ids) {
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const chunk = ids.slice(i, i + BATCH);
+      const res = await c.getJSON(c.getUrl('SeasonBadge/Stats', { ids: chunk.join(',') }));
+      const now = Date.now();
+      chunk.forEach(function (id) {
+        statsCache.set(id, { at: now, value: (res && res[id]) || null });
+      });
+    }
+  }
+
+  // ---- Script-only mode: count episodes in the browser ----
+  const seriesCache = new Map();
+
+  async function isExcluded(c, seriesId) {
+    if (excludedSeries.has(norm(seriesId))) return true;
+    if (!excludedLibraries.size) return false;
+    const url = c.getUrl('Items/' + seriesId + '/Ancestors', { UserId: c.getCurrentUserId() });
+    const ancestors = await c.getJSON(url);
+    return (ancestors || []).some(function (a) { return excludedLibraries.has(norm(a.Id)); });
+  }
+
+  async function loadSeries(c, seriesId) {
+    if (await isExcluded(c, seriesId)) return null;
+    const url = c.getUrl('Shows/' + seriesId + '/Episodes', {
+      UserId: c.getCurrentUserId(),
+      Fields: 'PremiereDate',
+      EnableImages: false,
+      EnableUserData: false
+    });
+    const res = await c.getJSON(url);
+    const now = Date.now();
+    const seasons = new Map();
+    const all = { have: 0, total: 0 };
+    (res.Items || []).forEach(function (ep) {
+      const virtual = ep.LocationType === 'Virtual';
+      const aired = ep.PremiereDate && Date.parse(ep.PremiereDate) <= now;
+      if (virtual && !aired) return;
+      const s = seasons.get(ep.SeasonId) || { have: 0, total: 0 };
+      s.total++;
+      if (!virtual) s.have++;
+      seasons.set(ep.SeasonId, s);
+      if (cfg.includeSpecials || ep.ParentIndexNumber !== 0) {
+        all.total++;
+        if (!virtual) all.have++;
+      }
+    });
+    return { seasons: seasons, all: all };
+  }
+
+  function seriesStats(c, seriesId) {
+    if (!seriesCache.has(seriesId)) {
+      seriesCache.set(seriesId, loadSeries(c, seriesId));
+      setTimeout(function () { seriesCache.delete(seriesId); }, TTL);
+    }
+    return seriesCache.get(seriesId);
+  }
+
+  async function clientStats(c, card) {
+    const id = card.getAttribute('data-id');
+    if (card.getAttribute('data-type') === 'Series') {
+      const s = await seriesStats(c, id);
+      return s && s.all;
+    }
+    const season = await c.getItem(c.getCurrentUserId(), id);
+    if (!season.SeriesId) return null;
+    const s = await seriesStats(c, season.SeriesId);
+    return s && s.seasons.get(id);
+  }
+
+  // ---- Scan ----
   async function scan() {
     const c = window.ApiClient;
     if (!c || !c.getCurrentUserId || !c.getCurrentUserId()) return;
@@ -106,19 +162,29 @@
     if (cfg.showOnSeasons) selectors.push('.card[data-type="Season"][data-id]:not([' + FLAG + '])');
     if (cfg.showOnSeries) selectors.push('.card[data-type="Series"][data-id]:not([' + FLAG + '])');
     if (!selectors.length) return;
-    for (const card of document.querySelectorAll(selectors.join(','))) {
-      card.setAttribute(FLAG, '1');
-      const id = card.getAttribute('data-id');
+    const cards = Array.prototype.slice.call(document.querySelectorAll(selectors.join(',')));
+    if (!cards.length) return;
+    cards.forEach(function (card) { card.setAttribute(FLAG, '1'); });
+
+    if (cfg.serverStats) {
       try {
-        if (card.getAttribute('data-type') === 'Series') {
-          const stats = await seriesStats(c, id);
-          if (stats) addBadge(card, stats.get(SERIES_KEY));
-        } else {
-          const season = await c.getItem(c.getCurrentUserId(), id);
-          if (!season.SeriesId) continue;
-          const stats = await seriesStats(c, season.SeriesId);
-          if (stats) addBadge(card, stats.get(id));
-        }
+        const ids = cards.map(function (card) { return card.getAttribute('data-id'); })
+          .filter(function (id, i, arr) { return arr.indexOf(id) === i && !cached(id); });
+        if (ids.length) await fetchServer(c, ids);
+        cards.forEach(function (card) {
+          const e = cached(card.getAttribute('data-id'));
+          if (e) addBadge(card, e.value);
+        });
+        return;
+      } catch (e) {
+        console.warn('[season-badge] server stats unavailable, counting in the browser', e);
+        cfg.serverStats = false;
+      }
+    }
+
+    for (const card of cards) {
+      try {
+        addBadge(card, await clientStats(c, card));
       } catch (e) {
         console.warn('[season-badge]', e);
       }
