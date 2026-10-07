@@ -109,3 +109,59 @@ test('missing-episode highlight style is only added when enabled', async () => {
   w = badgePage('', { highlightMissing: false }, scriptApi());
   assert.doesNotMatch(w.document.head.innerHTML, /missingIndicator/);
 });
+
+// jsdom has no layout engine, so rectangles are faked: elements carry data-rect="left,top,width,height",
+// the badge is 40x20 and placed by its top/bottom offset (".4em" counts as 6px).
+function fakeLayout(w) {
+  const rect = (l, t, wd, h) => ({ left: l, top: t, width: wd, height: h, right: l + wd, bottom: t + h });
+  w.Element.prototype.getBoundingClientRect = function () {
+    if (this.classList.contains('season-complete-badge')) {
+      const host = this.parentElement.getBoundingClientRect();
+      const off = (v) => (v && v.endsWith('px') ? parseFloat(v) : 6);
+      return this.dataset.v === 'top'
+        ? rect(host.left + 6, host.top + off(this.style.top), 40, 20)
+        : rect(host.left + 6, host.bottom - off(this.style.bottom) - 20, 40, 20);
+    }
+    const r = (this.dataset.rect || '0,0,0,0').split(',').map(Number);
+    return rect(...r);
+  };
+}
+
+const taggedCard = (id) =>
+  `<div class="card" data-type="Season" data-id="${id}"><div class="cardImageContainer" data-rect="0,0,200,300">` +
+  '<div class="quality-tags" style="position:absolute" data-rect="4,4,60,40"></div></div></div>';
+
+test('badge moves below overlays from other plugins', async () => {
+  const api = { getCurrentUserId: () => 'u', getUrl: (p) => p, getJSON: async () => ({ B: { have: 1, total: 2 } }) };
+  const w = badgePage('', { serverStats: true }, api);
+  fakeLayout(w);
+  w.document.body.insertAdjacentHTML('beforeend', taggedCard('B'));
+  await wait(500);
+  const b = w.document.querySelector('.season-complete-badge');
+  assert.strictEqual(b.style.top, '48px');
+});
+
+test('badge stays put when its corner is free', async () => {
+  const api = { getCurrentUserId: () => 'u', getUrl: (p) => p, getJSON: async () => ({ B: { have: 1, total: 2 } }) };
+  const w = badgePage('', { serverStats: true, position: 'bottom-left' }, api);
+  fakeLayout(w);
+  w.document.body.insertAdjacentHTML('beforeend', taggedCard('B'));
+  await wait(500);
+  const b = w.document.querySelector('.season-complete-badge');
+  assert.strictEqual(b.style.bottom, '0.4em');
+});
+
+test('badge moves when another plugin adds tags later', async () => {
+  const api = { getCurrentUserId: () => 'u', getUrl: (p) => p, getJSON: async () => ({ B: { have: 1, total: 2 } }) };
+  const w = badgePage('', { serverStats: true }, api);
+  fakeLayout(w);
+  w.document.body.insertAdjacentHTML('beforeend',
+    '<div class="card" data-type="Season" data-id="B"><div class="cardImageContainer" data-rect="0,0,200,300"></div></div>');
+  await wait(500);
+  const b = w.document.querySelector('.season-complete-badge');
+  assert.strictEqual(b.style.top, '0.4em');
+  w.document.querySelector('.cardImageContainer').insertAdjacentHTML('beforeend',
+    '<div style="position:absolute" data-rect="4,4,60,40"></div>');
+  await wait(500);
+  assert.strictEqual(b.style.top, '48px');
+});

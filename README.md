@@ -9,7 +9,7 @@ Shows at a glance whether a season or series is complete in your Jellyfin librar
 - **✓ 13** (green): all aired episodes are present
 - **11/13** (red): episodes are missing — hover for the exact count
 
-Badges appear on season posters and on series posters in the library. Series badges count all seasons except Specials (configurable). Unaired episodes are ignored, so an ongoing season isn't flagged as incomplete. Inside a season, missing episodes are highlighted in the episode list.
+Badges appear on season posters and on series posters in the library. Series badges count all seasons except Specials (configurable). Unaired episodes are ignored, so an ongoing season isn't flagged as incomplete. Inside a season, missing episodes are highlighted in the episode list. Badges move out of the way of overlays from other plugins, such as the quality tags of Jellyfin Enhanced.
 
 <!-- ![Season badges](screenshot.png) -->
 

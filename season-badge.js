@@ -54,6 +54,55 @@
     'bottom-right': ['bottom', 'right']
   };
 
+  // ---- Avoid overlays from other plugins (e.g. quality tags of Jellyfin Enhanced) ----
+  function overlaps(a, b) {
+    return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  }
+
+  function dodge(card, badge) {
+    const host = badge.parentElement;
+    if (!host) return;
+    const count = card.getElementsByTagName('*').length;
+    if (badge.dataset.n === String(count)) return; // nothing new in this card
+    badge.dataset.n = String(count);
+
+    const hr = host.getBoundingClientRect();
+    if (!hr.width || !hr.height) return;
+    const side = badge.dataset.v;
+    badge.style[side] = '.4em';
+
+    const others = Array.prototype.filter.call(card.querySelectorAll('*'), function (el) {
+      if (el === badge || badge.contains(el) || el.contains(badge)) return false;
+      const cs = getComputedStyle(el);
+      if (cs.position !== 'absolute' && cs.position !== 'fixed') return false;
+      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false;
+      const r = el.getBoundingClientRect();
+      // Ignore full-size layers like the poster image or hover overlays
+      return r.width > 0 && r.height > 0 && r.width < hr.width * 0.6 && r.height < hr.height * 0.6;
+    });
+
+    for (let i = 0; i < 6; i++) {
+      const br = badge.getBoundingClientRect();
+      const hits = others.map(function (el) { return el.getBoundingClientRect(); })
+        .filter(function (r) { return overlaps(br, r); });
+      if (!hits.length) return;
+      if (side === 'top') {
+        const lowest = Math.max.apply(null, hits.map(function (r) { return r.bottom; }));
+        badge.style.top = Math.round(lowest - hr.top + 4) + 'px';
+      } else {
+        const highest = Math.min.apply(null, hits.map(function (r) { return r.top; }));
+        badge.style.bottom = Math.round(hr.bottom - highest + 4) + 'px';
+      }
+    }
+  }
+
+  function dodgeAll() {
+    document.querySelectorAll('.season-complete-badge').forEach(function (badge) {
+      const card = badge.closest('.card');
+      if (card) dodge(card, badge);
+    });
+  }
+
   function addBadge(card, s) {
     if (!s || !s.total) return;
     const done = s.have >= s.total;
@@ -64,6 +113,7 @@
     const pos = POSITIONS[cfg.position] || POSITIONS['top-left'];
     const b = document.createElement('div');
     b.className = 'season-complete-badge';
+    b.dataset.v = pos[0];
     b.textContent = done ? '✓ ' + s.total : s.have + '/' + s.total;
     b.title = done ? 'Complete' : (s.total - s.have) + ' episode(s) missing';
     b.style.cssText = [
@@ -74,6 +124,7 @@
       'background:' + (done ? cfg.completeColor : cfg.incompleteColor)
     ].join(';');
     host.appendChild(b);
+    dodge(card, b);
   }
 
   // ---- Server mode: one request per batch of cards ----
@@ -158,6 +209,7 @@
   async function scan() {
     const c = window.ApiClient;
     if (!c || !c.getCurrentUserId || !c.getCurrentUserId()) return;
+    dodgeAll();
     const selectors = [];
     if (cfg.showOnSeasons) selectors.push('.card[data-type="Season"][data-id]:not([' + FLAG + '])');
     if (cfg.showOnSeries) selectors.push('.card[data-type="Series"][data-id]:not([' + FLAG + '])');
