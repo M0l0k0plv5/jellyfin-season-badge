@@ -3,3 +3,4 @@ obj/
 out/
 *.zip
 manifest.json
+node_modules/

@@ -28,6 +28,11 @@ public sealed class Counts
 }
 
 /// <summary>
+/// An aired episode that has no file.
+/// </summary>
+public sealed record MissingEpisode(Guid Id, int? Season, int? Episode, string Name, DateTime? PremiereDate);
+
+/// <summary>
 /// Counts for all seasons of a series.
 /// </summary>
 public sealed class SeriesStats
@@ -37,6 +42,8 @@ public sealed class SeriesStats
     public Counts All { get; } = new();
 
     public Counts Specials { get; } = new();
+
+    public List<MissingEpisode> Missing { get; } = new();
 
     public Counts ForSeries(bool includeSpecials)
     {
@@ -126,6 +133,11 @@ public sealed class StatsService : IDisposable
             if (episode.ParentIndexNumber == 0)
             {
                 stats.Specials.Add(!missing);
+            }
+
+            if (missing)
+            {
+                stats.Missing.Add(new MissingEpisode(episode.Id, episode.ParentIndexNumber, episode.IndexNumber, episode.Name, episode.PremiereDate));
             }
         }
 

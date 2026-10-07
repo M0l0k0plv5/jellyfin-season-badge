@@ -24,13 +24,21 @@ public record IncompleteSeason(
     [property: JsonPropertyName("have")] int Have,
     [property: JsonPropertyName("total")] int Total);
 
+public record MissingEpisodeResult(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("season")] int? Season,
+    [property: JsonPropertyName("episode")] int? Episode,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("airDate")] string? AirDate);
+
 public record IncompleteSeries(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("year")] int? Year,
     [property: JsonPropertyName("have")] int Have,
     [property: JsonPropertyName("total")] int Total,
-    [property: JsonPropertyName("seasons")] IReadOnlyList<IncompleteSeason> Seasons);
+    [property: JsonPropertyName("seasons")] IReadOnlyList<IncompleteSeason> Seasons,
+    [property: JsonPropertyName("missing")] IReadOnlyList<MissingEpisodeResult> Missing);
 
 /// <summary>
 /// Returns badge counts for many seasons and series in one request.
@@ -173,7 +181,20 @@ public class SeasonBadgeController : ControllerBase
             }
 
             seasons.Sort((a, b) => (a.Index ?? int.MaxValue).CompareTo(b.Index ?? int.MaxValue));
-            result.Add(new IncompleteSeries(series.Id.ToString("N"), series.Name, series.ProductionYear, counts.Have, counts.Total, seasons));
+
+            List<MissingEpisodeResult> missing = stats.Missing
+                .Where(e => cfg.IncludeSpecials || e.Season != 0)
+                .OrderBy(e => e.Season ?? int.MaxValue)
+                .ThenBy(e => e.Episode ?? int.MaxValue)
+                .Select(e => new MissingEpisodeResult(
+                    e.Id.ToString("N"),
+                    e.Season,
+                    e.Episode,
+                    e.Name,
+                    e.PremiereDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)))
+                .ToList();
+
+            result.Add(new IncompleteSeries(series.Id.ToString("N"), series.Name, series.ProductionYear, counts.Have, counts.Total, seasons, missing));
         }
 
         result.Sort((a, b) =>

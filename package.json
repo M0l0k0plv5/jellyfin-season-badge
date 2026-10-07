@@ -1,0 +1,10 @@
+{
+  "name": "jellyfin-season-badge-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  }
+}

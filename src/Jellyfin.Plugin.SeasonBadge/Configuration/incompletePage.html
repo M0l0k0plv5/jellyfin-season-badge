@@ -25,6 +25,10 @@
                         <option value="name">Name</option>
                     </select>
                 </div>
+                <div style="display:flex;gap:.5em;margin-bottom:1.8em;">
+                    <button id="sbCopyAll" is="emby-button" type="button" class="raised button-alt emby-button">Copy list</button>
+                    <button id="sbExport" is="emby-button" type="button" class="raised button-alt emby-button">Export CSV</button>
+                </div>
             </div>
 
             <div id="sbList"></div>
@@ -44,6 +48,73 @@
                 if (css) e.style.cssText = css;
                 if (text !== undefined) e.textContent = text;
                 return e;
+            }
+
+            function pad(n) {
+                return n === null || n === undefined ? '??' : (n < 10 ? '0' : '') + n;
+            }
+
+            function episodeLabel(e) {
+                return 'S' + pad(e.season) + 'E' + pad(e.episode)
+                    + (e.name ? ' - ' + e.name : '')
+                    + (e.airDate ? ' (' + e.airDate + ')' : '');
+            }
+
+            function seriesTitle(item) {
+                return item.name + (item.year ? ' (' + item.year + ')' : '');
+            }
+
+            function asText(list) {
+                return list.map(function (item) {
+                    return seriesTitle(item) + '\n' + (item.missing || []).map(function (e) { return '  ' + episodeLabel(e); }).join('\n');
+                }).join('\n\n');
+            }
+
+            function csvField(v) {
+                const t = v === null || v === undefined ? '' : String(v);
+                return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+            }
+
+            function asCsv(list) {
+                const rows = [['Series', 'Year', 'Season', 'Episode', 'Title', 'Air date']];
+                list.forEach(function (item) {
+                    (item.missing || []).forEach(function (e) {
+                        rows.push([item.name, item.year, e.season, e.episode, e.name, e.airDate]);
+                    });
+                });
+                return rows.map(function (r) { return r.map(csvField).join(','); }).join('\r\n') + '\r\n';
+            }
+
+            function copyText(text, button) {
+                const done = function () {
+                    const label = button.textContent;
+                    button.textContent = 'Copied';
+                    setTimeout(function () { button.textContent = label; }, 1500);
+                };
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(done);
+                    return;
+                }
+                // Fallback for Jellyfin served over plain http
+                const area = document.createElement('textarea');
+                area.value = text;
+                area.style.cssText = 'position:fixed;opacity:0;';
+                document.body.appendChild(area);
+                area.select();
+                document.execCommand('copy');
+                area.remove();
+                done();
+            }
+
+            function downloadCsv(list) {
+                const blob = new Blob(['\ufeff' + asCsv(list)], { type: 'text/csv;charset=utf-8' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'missing-episodes.csv';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
             }
 
             function sorted(list) {
@@ -93,6 +164,31 @@
                 });
                 main.appendChild(chips);
 
+                const missing = item.missing || [];
+                if (missing.length) {
+                    const toggle = el('a', 'display:inline-block;margin-top:.4em;font-size:.85em;cursor:pointer;opacity:.8;text-decoration:underline;',
+                        'Show ' + missing.length + ' missing episode' + (missing.length === 1 ? '' : 's'));
+                    const details = el('div', 'display:none;margin-top:.4em;font-size:.9em;');
+                    missing.forEach(function (e) {
+                        const line = el('a', 'display:block;color:inherit;text-decoration:none;padding:.1em 0;', episodeLabel(e));
+                        line.href = '#/details?id=' + e.id;
+                        details.appendChild(line);
+                    });
+                    const copy = el('button', 'margin-top:.4em;', 'Copy');
+                    copy.type = 'button';
+                    copy.setAttribute('is', 'emby-button');
+                    copy.className = 'raised button-alt emby-button';
+                    copy.addEventListener('click', function () { copyText(asText([item]), copy); });
+                    details.appendChild(copy);
+                    toggle.addEventListener('click', function () {
+                        const open = details.style.display === 'none';
+                        details.style.display = open ? '' : 'none';
+                        toggle.textContent = (open ? 'Hide ' : 'Show ') + missing.length + ' missing episode' + (missing.length === 1 ? '' : 's');
+                    });
+                    main.appendChild(toggle);
+                    main.appendChild(details);
+                }
+
                 const counts = el('div', 'text-align:right;white-space:nowrap;');
                 counts.appendChild(el('div', 'font-weight:600;', item.have + '/' + item.total));
                 counts.appendChild(el('div', 'font-size:.85em;opacity:.7;', (item.total - item.have) + ' missing'));
@@ -117,13 +213,15 @@
                     : 'All series are complete.';
             }
 
-            function renderList() {
+            function visible() {
                 const term = $('#sbFilter').value.trim().toLowerCase();
+                return sorted(series).filter(function (s) { return !term || s.name.toLowerCase().indexOf(term) !== -1; });
+            }
+
+            function renderList() {
                 const box = $('#sbList');
                 box.innerHTML = '';
-                sorted(series)
-                    .filter(function (s) { return !term || s.name.toLowerCase().indexOf(term) !== -1; })
-                    .forEach(function (s) { box.appendChild(renderRow(s)); });
+                visible().forEach(function (s) { box.appendChild(renderRow(s)); });
             }
 
             function load() {
@@ -149,6 +247,8 @@
                 });
             }
 
+            $('#sbCopyAll').addEventListener('click', function () { copyText(asText(visible()), $('#sbCopyAll')); });
+            $('#sbExport').addEventListener('click', function () { downloadCsv(visible()); });
             $('#sbFilter').addEventListener('input', renderList);
             $('#sbSort').addEventListener('change', renderList);
             page.addEventListener('pageshow', load);

@@ -1,5 +1,7 @@
 # Jellyfin Season Badge
 
+[![CI](https://github.com/M0l0k0plv5/jellyfin-season-badge/actions/workflows/ci.yml/badge.svg)](https://github.com/M0l0k0plv5/jellyfin-season-badge/actions/workflows/ci.yml)
+
 ![Season Badge](icon.png)
 
 Shows at a glance whether a season or series is complete in your Jellyfin library.
@@ -45,7 +47,7 @@ Reload the web client after saving.
 
 ### Incomplete series overview
 
-Dashboard → **Incomplete Series** (sidebar, under Plugins) lists every series with missing aired episodes and the affected seasons. Sort by most missing, least complete or name, filter by title, and click **Ignore** to exclude a series.
+Dashboard → **Incomplete Series** (sidebar, under Plugins) lists every series with missing aired episodes and the affected seasons. Expand a series to see each missing episode (`S02E05 - Title (air date)`), copy the list, or export everything as CSV. Sort by most missing, least complete or name, filter by title, and click **Ignore** to exclude a series.
 
 ## Installation (script only)
 
@@ -74,13 +76,15 @@ Nothing in your library is changed; the plugin only reads data.
 - Episodes without an air date are treated as unaired.
 - The missing-episode highlight needs a browser with CSS `:has()` support (all current browsers).
 
-## Building
+## Development
 
 ```sh
-./release.sh 1.2.3
+npm install && npm test        # web client tests (Node 22+)
+dotnet build src/Jellyfin.Plugin.SeasonBadge
+./release.sh 1.2.3             # build and publish a GitHub release (needs the .NET 10 SDK and gh)
 ```
 
-Builds the plugin and publishes a GitHub release with the zip and `manifest.json` (requires the .NET 10 SDK and `gh`).
+CI builds the plugin against Jellyfin 12.0 and the latest 12.x release on every push and once a week, and runs the tests.
 
 ## License
 
