@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { JSDOM } = require('jsdom');
+const { JSDOM, VirtualConsole } = require('jsdom');
 
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
@@ -29,6 +29,7 @@ function pluginPage(file, api) {
   const dashboard = { loading: 0 };
   const dom = new JSDOM(read(file), {
     runScripts: 'dangerously',
+    virtualConsole: new VirtualConsole().sendTo(console, { omitJSDOMErrors: true }),
     url: 'http://localhost/web/',
     beforeParse(w) {
       w.Dashboard = {
